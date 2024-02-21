@@ -96,8 +96,6 @@ LPTSTR Task2(DWORD type) {
 }
 
 HCRYPTPROV Task3(LPTSTR pszName, DWORD type) {
-    
-    LPCWSTR UserName = L"LexaBank";
 
     HCRYPTPROV hCryptProv;
     BYTE       pbData[1000];       // 1000 will hold the longest 
