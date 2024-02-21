@@ -97,7 +97,7 @@ LPTSTR Task2(DWORD type) {
 
 HCRYPTPROV Task3(LPTSTR pszName, DWORD type) {
     
-   
+    LPCWSTR UserName = L"LexaBank";
 
     HCRYPTPROV hCryptProv;
     BYTE       pbData[1000];       // 1000 will hold the longest 
@@ -107,8 +107,20 @@ HCRYPTPROV Task3(LPTSTR pszName, DWORD type) {
         
     }
     else {
-        printf("Context don't recived\n");
-        return NULL;
+        if (CryptAcquireContext(
+            &hCryptProv,
+            NULL,
+            pszName,
+            PROV_RSA_FULL,
+            CRYPT_NEWKEYSET))
+        {
+            printf("A new key container has been created.\n");
+        }
+        else
+        {
+            printf("Could not create a new key container.\n");
+            exit(1);
+        }
     }
 
     DWORD cbData;
@@ -188,8 +200,8 @@ HCRYPTPROV Task3(LPTSTR pszName, DWORD type) {
 
 void Task4(HCRYPTPROV hCryptProv, LPTSTR pszNameProv, DWORD type, LPCWSTR nameContainer) {  // handle for a cryptographic
                                      // provider context
-
-    
+    LPSTR pszUserName;
+    DWORD dwUserNameLen;
     if (CryptAcquireContext(
         &hCryptProv,
         nameContainer,
@@ -204,6 +216,99 @@ void Task4(HCRYPTPROV hCryptProv, LPTSTR pszNameProv, DWORD type, LPCWSTR nameCo
         printf("Could not create a new key container.\n");
         return;
     }
+
+
+    if (!CryptGetProvParam(
+        hCryptProv,               // Дескриптор CSP
+        PP_CONTAINER,             // Получение имени ключевого контейнера
+        NULL,                     // Указатель на имя ключевого контейнера
+        &dwUserNameLen,           // Длина имени
+        0))
+    {
+        // Ошибка получении имени ключевого контейнера
+        printf("Error: %d", GetLastError());
+        exit(1);
+    }
+
+    // Лучше использовать auto_ptr:
+    //std::auto_ptr<char> aptrUserName(new char[dwUserNameLen+1]);
+    //szUserName = aptrUserName.get();
+    pszUserName = (char*)malloc((dwUserNameLen + 1));
+
+    if (!CryptGetProvParam(
+        hCryptProv,               // Дескриптор CSP
+        PP_CONTAINER,             // Получение имени ключевого контейнера
+        (LPBYTE)pszUserName,      // Указатель на имя ключевого контейнера
+        &dwUserNameLen,           // Длина имени
+        0))
+    {
+        // Ошибка получении имени ключевого контейнера
+        free(pszUserName);
+        printf("error occurred getting the key container name. Error: %d", GetLastError());
+        exit(1);
+    }
+    else
+    {
+        printf("A crypto context has been acquired and \n");
+        printf("The name on the key container is %s\n\n", pszUserName);
+        free(pszUserName);
+    }
+    HCRYPTKEY hKey = 0;
+    // Контекст с ключевым контейнером доступен,
+    // попытка получения дескриптора ключа подписи
+    if (CryptGetUserKey(
+        hCryptProv,                     // Дескриптор CSP
+        AT_SIGNATURE,                   // Спецификация ключа
+        &hKey))                         // Дескриптор ключа
+    {
+        printf("A signature key is available.\n");
+    }
+    else
+    {
+        printf("No signature key is available.\n");
+
+        // Ошибка в том, что контейнер не содержит ключа.
+        if (!(GetLastError() == (DWORD)NTE_NO_KEY)) {
+            printf("An error other than NTE_NO_KEY getting signature key.\n");
+            exit(1);
+        }
+            
+
+        // Создание подписанной ключевой пары. 
+        printf("The signature key does not exist.\n");
+        printf("Creating a signature key pair...\n");
+
+        if (!CryptGenKey(
+            hCryptProv,
+            AT_SIGNATURE,
+            0,
+            &hKey))
+        {
+            printf("Error occurred creating a signature key.\n");
+            exit(1);
+        }
+        printf("Created a signature key pair.\n");
+
+    }
+
+    // Получение ключа обмена: AT_KEYEXCHANGE
+    if (CryptGetUserKey(
+        hCryptProv,
+        AT_KEYEXCHANGE,
+        &hKey))
+    {
+        printf("An exchange key exists. \n");
+    }
+    else
+    {
+        printf("No exchange key is available.\n");
+    }
+
+    
+
+    printf("Everything is okay. A signature key\n");
+    printf("pair and an exchange key exist in\n");
+    wprintf(L"the %s key container.\n", nameContainer);
 
     
 }
@@ -229,28 +334,38 @@ void Task5(HCRYPTPROV hCryptProv, LPTSTR pszNameProv, DWORD type, LPCWSTR nameCo
 }
 
 void printNamesContFromProv(HCRYPTPROV hCryptProv) {
-    BYTE       pbData[1000];       // 1000 will hold the longest 
+    //BYTE       pbData[1000];       // 1000 will hold the longest 
                                    // key container name.
-
+    DWORD dwFlags = CRYPT_FIRST;
     DWORD cbData;
 
     cbData = 1000;
+    CryptGetProvParam(hCryptProv, PP_ENUMCONTAINERS, NULL, &cbData, dwFlags);
+    PBYTE pbData = new BYTE[cbData];
     if (CryptGetProvParam(
         hCryptProv,
         PP_ENUMCONTAINERS   ,
         pbData,
         &cbData,
-        CRYPT_FIRST))
+        dwFlags))
     {
         //printf("CryptGetProvParam succeeded.\n");
         printf("Name container: %s\n", pbData);
     }
     else
     {
+        printf("ERROR_INVALID_HANDLE %d\n", ERROR_INVALID_HANDLE);
+        printf("ERROR_INVALID_PARAMETER %d\n", ERROR_INVALID_PARAMETER);
+        printf("ERROR_MORE_DATA %d\n", ERROR_MORE_DATA);
+        printf("ERROR_NO_MORE_ITEMS %d\n", ERROR_NO_MORE_ITEMS);
+        printf("NTE_BAD_FLAGS %d\n", NTE_BAD_FLAGS);
+        printf("NTE_BAD_TYPE %d\n", NTE_BAD_TYPE);
+        printf("NTE_BAD_UID %d\n", NTE_BAD_UID);
+        printf("Error %d\n", GetLastError());
         printf("Error reading CSP name. \n");
-        exit(1);
+        //exit(1);
     }
-
+    
     cbData = 1000;
     while (CryptGetProvParam(
         hCryptProv,
@@ -277,24 +392,32 @@ int cin(std::string str) {
 PROV_ENUMALGS parse(BYTE* data) {
     PROV_ENUMALGS out;
     ALG_ID id;
-    id = data[0] | 8 << data[1] | 16 << data[2] | 24 << data[3];
-    out.aiAlgid = id;
-    out.dwBitLen = data[4];
-    out.dwNameLen = data[8];
+    id = *(ALG_ID*)data;
+    BYTE* ptr = &data[0];
+
+    ptr += sizeof(ALG_ID);
     
-    BYTE* ptr = &data[9];
+    //id = data[0] | 8 << data[1] | 16 << data[2] | 24 << data[3];
+    out.aiAlgid = id;
+    out.dwBitLen = *(DWORD*)ptr;
+    ptr += sizeof(DWORD);
+    out.dwNameLen = *(DWORD*)ptr;
+    ptr += sizeof(DWORD);
+    /*
     while (!(*ptr)) {
         ++ptr;
     }
-
+    */
+    strncpy_s(out.szName, sizeof(out.szName), (char*)ptr, out.dwNameLen);
     //CHAR* szName = new CHAR[out.dwNameLen]{0};
+    /*
     for (int i = 0; i < out.dwNameLen - 1; i++) {
         out.szName[i] = *ptr;
         
         ++ptr;
     }
     out.szName[out.dwNameLen - 1] = 0;
-
+    */
 
     return out;
 }
